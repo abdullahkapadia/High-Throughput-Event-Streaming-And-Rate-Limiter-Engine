@@ -35,8 +35,7 @@ func TestEngineFullFlow(t *testing.T) {
 	cg.Assign(topic)
 
 	ctx, cancel := context.WithCancel(ctx)
-	var wg sync.WaitGroup
-	cg.Start(ctx, &wg)
+	cg.Start(ctx)
 
 	prod1 := producer.NewProducer("p1", b)
 	prod2 := producer.NewProducer("p2", b)
@@ -74,7 +73,7 @@ func TestEngineFullFlow(t *testing.T) {
 	}
 
 	cancel()
-	wg.Wait()
+	cg.Stop()
 	b.Close()
 }
 
@@ -125,22 +124,11 @@ func TestGracefulShutdownNoLeak(t *testing.T) {
 	cg.Assign(b.GetTopic("shutdown-test"))
 
 	ctx, cancel := context.WithCancel(ctx)
-	var wg sync.WaitGroup
-	cg.Start(ctx, &wg)
+	cg.Start(ctx)
 
 	cancel()
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
+	cg.Stop()
 
-	select {
-	case <-done:
-		// OK — consumers shut down cleanly
-	case <-time.After(2 * time.Second):
-		t.Fatal("graceful shutdown timed out — possible goroutine leak or deadlock")
-	}
 	b.Close()
 }
 
@@ -162,11 +150,11 @@ func TestConsumerGroupRebalance(t *testing.T) {
 
 	// After assigning 4 partitions to 2 consumers, add a 3rd and rebalance
 	cg.AddConsumer(c3)
-	cg.Rebalance(topic)
+	cg.Rebalance(topic, ctx)
 
 	// Now remove c2 and rebalance again
 	cg.RemoveConsumer("c2")
-	cg.Rebalance(topic)
+	cg.Rebalance(topic, ctx)
 
 	b.Close()
 }

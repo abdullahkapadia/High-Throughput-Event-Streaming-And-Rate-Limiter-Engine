@@ -36,8 +36,7 @@ func BenchmarkEngine(b *testing.B) {
 	cg.Assign(brk.GetTopic("bench-topic"))
 
 	ctx, cancel := context.WithCancel(ctx)
-	var wg sync.WaitGroup
-	cg.Start(ctx, &wg)
+	cg.Start(ctx)
 
 	producers := make([]*producer.Producer, 5)
 	for i := 0; i < 5; i++ {
@@ -68,5 +67,5 @@ func BenchmarkEngine(b *testing.B) {
 
 	b.StopTimer()
 	cancel()
-	wg.Wait()
+	cg.Stop()
 }
