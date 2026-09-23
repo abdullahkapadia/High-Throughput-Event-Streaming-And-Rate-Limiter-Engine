@@ -5,6 +5,7 @@ import (
 	"event-engine/internal/broker"
 	"event-engine/internal/consumer"
 	"event-engine/internal/event"
+	"event-engine/internal/offset"
 	"event-engine/internal/partitioner"
 	"event-engine/internal/producer"
 	"fmt"
@@ -16,34 +17,35 @@ import (
 
 func BenchmarkEngine(b *testing.B) {
 	p := &partitioner.HashPartitioner{}
-	brk := broker.NewBroker(p)
-	brk.CreateTopic("bench-topic", 5, 10000)
+	brk := broker.NewMemoryBroker(p)
+	ctx := context.Background()
+	brk.CreateTopic(ctx, "bench-topic", 5, 10000)
 
+	offsets := offset.NewManager()
 	var consumed int64
-	handler := func(e *event.Event) {
+	handler := func(e *event.Event) error {
 		atomic.AddInt64(&consumed, 1)
+		return nil
 	}
 
 	consumers := make([]*consumer.Consumer, 3)
 	for i := 0; i < 3; i++ {
-		consumers[i] = consumer.NewConsumer(fmt.Sprintf("c%d", i), handler)
+		consumers[i] = consumer.NewConsumer(fmt.Sprintf("c%d", i), handler, offsets)
 	}
 	cg := consumer.NewGroup("cg1", consumers)
-	
 	cg.Assign(brk.GetTopic("bench-topic"))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	cg.Start(ctx, &wg)
 
-	// 5 concurrent producers
 	producers := make([]*producer.Producer, 5)
 	for i := 0; i < 5; i++ {
 		producers[i] = producer.NewProducer(fmt.Sprintf("p%d", i), brk)
 	}
 
 	b.ResetTimer()
-	
+
 	var prodWg sync.WaitGroup
 	eventsPerProducer := b.N / 5
 
@@ -60,13 +62,11 @@ func BenchmarkEngine(b *testing.B) {
 
 	prodWg.Wait()
 
-	// Wait for consumers to process all produced events
 	for atomic.LoadInt64(&consumed) < int64(eventsPerProducer*5) {
 		time.Sleep(1 * time.Millisecond)
 	}
-	
-	b.StopTimer()
 
+	b.StopTimer()
 	cancel()
 	wg.Wait()
 }

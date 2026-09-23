@@ -12,7 +12,6 @@ type Group struct {
 	consumers []*Consumer
 }
 
-// NewGroup creates a new Consumer Group.
 func NewGroup(id string, consumers []*Consumer) *Group {
 	return &Group{
 		ID:        id,
@@ -21,21 +20,44 @@ func NewGroup(id string, consumers []*Consumer) *Group {
 }
 
 // Assign distributes a topic's partitions across the consumers in this group.
-// It implements a basic deterministic assignment (round-robin by partition ID).
+// Uses round-robin: partition i goes to consumer i % len(consumers).
+// If there are more consumers than partitions, excess consumers sit idle.
 func (g *Group) Assign(topic *broker.Topic) {
 	numConsumers := len(g.consumers)
 	if numConsumers == 0 {
 		return
 	}
-	
-	// Deterministic partition assignment: Hash/Modulo based on Partition ID
+
+	for _, c := range g.consumers {
+		c.ClearAssignments()
+	}
+
 	for _, p := range topic.Partitions {
 		consumerIdx := p.ID % numConsumers
-		g.consumers[consumerIdx].assign(p)
+		g.consumers[consumerIdx].Assign(p)
 	}
 }
 
-// Start launches all consumers in this group.
+// Rebalance clears all assignments and redistributes. Call when consumers join or leave.
+func (g *Group) Rebalance(topic *broker.Topic) {
+	g.Assign(topic)
+}
+
+// AddConsumer adds a consumer to the group.
+func (g *Group) AddConsumer(c *Consumer) {
+	g.consumers = append(g.consumers, c)
+}
+
+// RemoveConsumer removes a consumer by ID from the group.
+func (g *Group) RemoveConsumer(id string) {
+	for i, c := range g.consumers {
+		if c.ID == id {
+			g.consumers = append(g.consumers[:i], g.consumers[i+1:]...)
+			return
+		}
+	}
+}
+
 func (g *Group) Start(ctx context.Context, wg *sync.WaitGroup) {
 	for _, c := range g.consumers {
 		c.Start(ctx, wg)
